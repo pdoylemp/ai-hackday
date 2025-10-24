@@ -1,0 +1,131 @@
+.App {
+  text-align: center;
+}
+
+.App-header {
+  background-color: #eaf6ff; /* Light blue background */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: #003366; /* Dark blue text */
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 20px;
+  width: 80%;
+  max-width: 800px;
+}
+
+.play-again {
+  margin-top: 20px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  color: #ffffff; /* White text */
+  background-color: #007acc; /* Medium blue */
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.play-again:hover {
+  background-color: #005fa3; /* Darker blue on hover */
+}
+
+.fireworks {
+  font-size: 2rem;
+  color: #ffcc00;
+  animation: fireworks-move 2s infinite, fireworks-animation 1s infinite;
+  margin-top: 20px;
+  position: absolute;
+}
+
+@keyframes fireworks-animation {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(-20px);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fireworks-move {
+  0% {
+    top: 10%;
+    left: 10%;
+  }
+  25% {
+    top: 20%;
+    left: 70%;
+  }
+  50% {
+    top: 50%;
+    left: 50%;
+  }
+  75% {
+    top: 70%;
+    left: 30%;
+  }
+  100% {
+    top: 10%;
+    left: 10%;
+  }
+}
+
+.modal {
+  background: #ffffff; /* White background */
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 400px;
+  margin: auto;
+  text-align: center;
+  color: #003366; /* Dark blue text */
+}
+
+.overlay {
+  background: rgba(0, 0, 0, 0.5); /* Semi-transparent overlay */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal input {
+  margin-top: 10px;
+  padding: 5px;
+  font-size: 1rem;
+  border: 1px solid #99ccff; /* Light blue border */
+  border-radius: 4px;
+  width: 80%;
+}
+
+.modal button {
+  margin-top: 10px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  color: #ffffff; /* White text */
+  background-color: #007acc; /* Medium blue */
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.modal button:hover {
+  background-color: #005fa3; /* Darker blue on hover */
+}

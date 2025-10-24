@@ -1,0 +1,26 @@
+.options-container {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 1rem;
+  color: #003366; /* Dark blue text */
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  font-size: 1rem;
+  color: #003366; /* Dark blue text */
+}
+
+input[type="number"],
+select {
+  margin-top: 5px;
+  padding: 5px;
+  font-size: 1rem;
+  border: 1px solid #99ccff; /* Light blue border */
+  border-radius: 4px;
+  background-color: #ffffff; /* White background */
+  color: #003366; /* Dark blue text */
+}

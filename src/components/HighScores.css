@@ -1,0 +1,15 @@
+.high-scores {
+  margin-top: 20px;
+  text-align: center;
+  color: #003366; /* Dark blue text */
+}
+
+.high-scores ul {
+  list-style: none;
+  padding: 0;
+}
+
+.high-scores li {
+  margin: 5px 0;
+  font-size: 1rem;
+}

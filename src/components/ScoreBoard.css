@@ -1,0 +1,9 @@
+.score-container {
+  display: flex;
+  justify-content: space-between;
+  width: 80%;
+  max-width: 800px;
+  margin-bottom: 20px;
+  font-size: 1.5rem;
+  color: #003366; /* Dark blue text */
+}
