@@ -9,7 +9,11 @@ import Options from './components/Options';
 
 ReactModal.setAppElement('#root'); // Set the app element for accessibility
 
-const socket = io(); // Automatically connects to the same host and port as the frontend
+const socket = io('http://localhost:3001', {
+  path: '/socket.io',
+  transports: ['websocket'],
+  autoConnect: true,
+}); // Automatically connects to the same host and port as the frontend
 
 function App() {
   const images = [
@@ -26,14 +30,80 @@ function App() {
   const [players, setPlayers] = useState([{ name: 'Player', score: 0 }, { name: 'AI', score: 0 }]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0); // Track the current player's turn
   const [isModalOpen, setIsModalOpen] = useState(true); // Open modal by default for game setup
-  const [playAgainstAI, setPlayAgainstAI] = useState('easy'); // Default to playing against easy AI
+  const [opponentType, setOpponentType] = useState('easy'); // 'easy' | 'hard' | 'multi'
+  const [showMultiplayerSetup, setShowMultiplayerSetup] = useState(false);
   const [playerName, setPlayerName] = useState('');
   const [gameCode, setGameCode] = useState(''); // Game code for joining specific games
   const [playerId, setPlayerId] = useState(null); // Unique ID for the current player
   const [aiMemory, setAiMemory] = useState({}); // Memory for hard AI
   const [numMatches, setNumMatches] = useState(8); // Default number of matches
+  const [isHost, setIsHost] = useState(false);
+  // Add gameStarted helper
+  const gameStarted = shuffledImages.length > 0;
+
+  const OPPONENT_OPTIONS = [
+    { value: 'easy', label: 'Easy AI' },
+    { value: 'hard', label: 'Hard AI' },
+    { value: 'multi', label: 'Multiplayer' },
+  ];
 
   useEffect(() => {
+    console.log('Opponent type:', opponentType);
+  }, [opponentType]);
+
+  const generateGameCode = () =>
+    Math.random().toString(36).substring(2, 7).toUpperCase();
+
+  const createMultiplayerGame = () => {
+    if (opponentType !== 'multi') return;
+    const newCode = generateGameCode();
+    setGameCode(newCode);
+    const hostName = playerName || 'Host';
+    console.log('Creating game', newCode);
+    socket.emit('joinGame', { gameCode: newCode, name: hostName }, (resp) => {
+      console.log('joinGame ack', resp);
+      if (resp?.host) {
+        setIsHost(true);
+        // Host auto-initialize after creating code (optional: defer to manual start)
+        socket.emit('initializeGame', { gameCode: newCode, numMatches });
+      }
+    });
+    setIsModalOpen(false);
+  };
+
+  // Multiplayer socket listeners
+  useEffect(() => {
+    if (opponentType !== 'multi') return;
+    console.log('Attaching multiplayer listeners for gameCode:', gameCode);
+    socket.emit('debugPing', { ts: Date.now() });
+    socket.on('gameState', (state) => {
+      console.log('Received gameState');
+      // Server drives authoritative state
+      setShuffledImages(state.shuffledImages);
+      setMatchedCards(state.matchedCards);
+      setFlippedCards(state.flippedCards);
+      setPlayers(state.players);
+      setCurrentPlayerIndex(state.currentPlayerIndex);
+      setGameWon(state.gameWon);
+      setNumMatches(state.numMatches);
+    });
+    socket.on('playerJoined', (playersList) => {
+      console.log('playerJoined', playersList);
+      setPlayers(playersList);
+    });
+    socket.on('errorMessage', (msg) => {
+      console.error('Server errorMessage:', msg);
+    });
+    return () => {
+      socket.off('gameState');
+      socket.off('playerJoined');
+      socket.off('errorMessage');
+    };
+  }, [opponentType, gameCode]);
+
+  // AI flow guarded: skip if multiplayer
+  useEffect(() => {
+    if (opponentType === 'multi') return; // multiplayer handled by server
     if (flippedCards.length === 2) {
       const [firstIndex, secondIndex] = flippedCards;
       let matchFound = false;
@@ -51,7 +121,7 @@ function App() {
         }
       } else {
         // Update AI memory for hard AI (even if it's the player's turn)
-        if (playAgainstAI === 'hard') {
+        if (opponentType === 'hard') {
           setAiMemory((prev) => ({
             ...prev,
             [firstIndex]: shuffledImages[firstIndex],
@@ -82,9 +152,34 @@ function App() {
         }, 100); // Add a slight delay to ensure flippedCards is cleared
       }, 1000);
     }
-  }, [flippedCards]);
+  }, [flippedCards, opponentType]);
 
+  const joinMultiplayerGame = () => {
+    if (opponentType !== 'multi') return;
+    if (!gameCode.trim()) return;
+    console.log('Joining game', gameCode);
+    socket.emit('joinGame', { gameCode, name: playerName || 'Player' }, (resp) => {
+      console.log('joinGame ack', resp);
+      if (resp?.host) setIsHost(true);
+    });
+    setIsModalOpen(false);
+  };
+
+  const initializeMultiplayerGame = () => {
+    if (opponentType !== 'multi') return;
+    if (!isHost || !gameCode) return;
+    socket.emit('initializeGame', {
+      gameCode,
+      numMatches,
+    });
+  };
+
+  // Adjust initializeGame: use AI path only when opponentType !== 'multi'
   const initializeGame = () => {
+    if (opponentType === 'multi') {
+      initializeMultiplayerGame();
+      return;
+    }
     const totalCards = numMatches * 2; // Dynamically set the total number of cards
     const selectedImages = images.slice(0, numMatches);
     const repeatedImages = Array(2).fill(selectedImages).flat();
@@ -100,7 +195,15 @@ function App() {
     setAiMemory({});
   };
 
+  // Card click: delegate to server in multiplayer
   const handleCardClick = (index) => {
+    if (opponentType === 'multi') {
+      if (!gameCode) return;
+      // Prevent redundant client flips (server authoritative)
+      if (matchedCards.includes(index) || flippedCards.includes(index)) return;
+      socket.emit('cardFlip', { gameCode, index });
+      return;
+    }
     if (flippedCards.length === 2 || flippedCards.includes(index) || matchedCards.includes(index)) {
       return; // Prevent invalid clicks
     }
@@ -113,9 +216,10 @@ function App() {
   };
 
   const handleAIMove = () => {
-    if (playAgainstAI === 'easy') {
+    if (opponentType === 'multi') return;
+    if (opponentType === 'easy') {
       handleEasyAIMove();
-    } else if (playAgainstAI === 'hard') {
+    } else if (opponentType === 'hard') {
       handleHardAIMove();
     }
   };
@@ -169,6 +273,8 @@ function App() {
     }
   };
 
+  const openSetup = () => setIsModalOpen(true);
+
   const cards = shuffledImages.map((image, index) => (
     <Card
       key={index}
@@ -177,12 +283,94 @@ function App() {
       onClick={() => handleCardClick(index)}
     />
   ));
+  
+  console.log(OPPONENT_OPTIONS);
+
+  useEffect(() => {
+    // Basic lifecycle logging
+    socket.on('connect', () => console.log('Socket connected:', socket.id));
+    socket.on('disconnect', (r) => console.log('Socket disconnected:', r));
+    socket.on('connect_error', (err) => console.error('Socket connect_error:', err.message));
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('connect_error');
+    };
+  }, []);
+
+  // Reset players when opponent type changes
+  useEffect(() => {
+    if (opponentType === 'multi') {
+      setPlayers([]);       // multiplayer players will arrive from server
+      setIsHost(false);
+      setGameWon(false);
+      setMatchedCards([]);
+      setFlippedCards([]);
+    } else {
+      setPlayers([{ name: 'Player', score: 0 }, { name: 'AI', score: 0 }]);
+      setIsHost(false);
+      setGameCode('');
+    }
+  }, [opponentType]);
+
+  // Safe derived scores for scoreboard
+  const playerScore = players[0]?.score ?? 0;
+  const opponentScore = opponentType === 'multi'
+    ? (players[1]?.score ?? 0)
+    : (players[1]?.score ?? 0); // still second slot for AI
+  const opponentLabel = opponentType === 'multi'
+    ? 'Multiplayer'
+    : (opponentType === 'easy' ? 'Easy AI' : 'Hard AI');
 
   return (
     <div className="App">
       <header className="App-header">
         <h2>Multiplayer Memory Game</h2>
-        <ScoreBoard playerScore={players[0].score} aiScore={players[1].score} aiType={playAgainstAI === 'easy' ? 'Easy AI' : 'Hard AI'} />
+        {opponentType === 'multi' && gameCode && (
+          <div style={{ marginBottom: 10, padding: '4px 10px', borderRadius: 6, background: '#eef', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span>Game Code: <strong>{gameCode}</strong></span>
+            <button onClick={() => navigator.clipboard.writeText(gameCode)}>Copy</button>
+          </div>
+        )}
+
+        {/* Scores only after gameStarted */}
+        {gameStarted && (
+          opponentType === 'multi' ? (
+            <div style={{ display: 'flex', gap: 16, marginTop: 4, marginBottom: 4 }}>
+              {players.map((p, i) => (
+                <div
+                  key={p.id || p.name + i}
+                  style={{
+                    fontWeight: i === currentPlayerIndex ? 'bold' : 'normal',
+                    padding: '4px 10px',
+                    border: '1px solid #ccc',
+                    borderRadius: 6,
+                    background: i === currentPlayerIndex ? '#f0f6ff' : '#fff',
+                    minWidth: 90
+                  }}
+                >
+                  <div style={{ fontSize: 12 }}>{p.name}</div>
+                  <div style={{ fontSize: 18 }}>{p.score}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <ScoreBoard
+              playerScore={playerScore}
+              aiScore={opponentScore}
+              aiType={opponentLabel}
+            />
+          )
+        )}
+
+        {/* Current turn line (only when game has started) */}
+        {gameStarted && players.length > 0 && (
+          <div style={{ marginBottom: 12, fontStyle: 'italic' }}>
+            Current Turn: {players[currentPlayerIndex]?.name}
+          </div>
+        )}
+
+        {/* Removed default pre-game score view */}
         <div className="card-grid">{cards}</div>
         {gameWon && (
           <div className="game-over">
@@ -193,6 +381,26 @@ function App() {
             </button>
           </div>
         )}
+        <button
+          style={{ position: 'absolute', top: 12, right: 12 }}
+          onClick={openSetup}
+        >
+          Setup
+        </button>
+        <div style={{ position: 'absolute', top: 12, left: 12 }}>
+          <select
+            value={opponentType}
+            onChange={(e) => {
+              const val = e.target.value;
+              setOpponentType(val);
+              setShowMultiplayerSetup(val === 'multi');
+            }}
+          >
+            {OPPONENT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
         <ReactModal
           isOpen={isModalOpen}
           onRequestClose={() => setIsModalOpen(false)}
@@ -201,23 +409,98 @@ function App() {
         >
           <h2>Game Setup</h2>
           <label>
-            Play against:
-            <select value={playAgainstAI} onChange={(e) => setPlayAgainstAI(e.target.value)}>
-              <option value="easy">Easy AI</option>
-              <option value="hard">Hard AI</option>
+            Play Against:
+            <select
+              value={opponentType}
+              onChange={(e) => {
+                const val = e.target.value;
+                setOpponentType(val);
+                setShowMultiplayerSetup(val === 'multi');
+              }}
+            >
+              {OPPONENT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </label>
-          <label>
-            Number of Matches: {numMatches}
-            <input
-              type="range"
-              value={numMatches}
-              onChange={(e) => setNumMatches(parseInt(e.target.value))}
-              min="1"
-              max="16"
-            />
-          </label>
-          <button onClick={initializeGame}>Start Game</button>
+
+          {opponentType !== 'multi' && (
+            <>
+              <label>
+                Number of Matches: {numMatches}
+                <input
+                  type="range"
+                  value={numMatches}
+                  onChange={(e) => setNumMatches(parseInt(e.target.value))}
+                  min="1"
+                  max="16"
+                />
+              </label>
+              <button onClick={initializeGame}>Start Game</button>
+            </>
+          )}
+
+          {showMultiplayerSetup && (
+            <>
+              <label>
+                Your Name:
+                <input
+                  type="text"
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  placeholder="Name"
+                />
+              </label>
+              {gameCode && isHost && (
+                <div style={{ marginTop: '8px', fontSize: '0.85rem' }}>
+                  Active Game Code: <strong>{gameCode}</strong>
+                  <button
+                    style={{ marginLeft: 8 }}
+                    onClick={() => navigator.clipboard.writeText(gameCode)}
+                  >
+                    Copy
+                  </button>
+                </div>
+              )}
+              {/* Added manual game code entry */}
+              {!isHost && (
+                <label>
+                  Enter Game Code:
+                  <input
+                    type="text"
+                    value={gameCode}
+                    onChange={(e) => setGameCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. ABC12"
+                  />
+                </label>
+              )}
+              <label>
+                Number of Matches: {numMatches}
+                <input
+                  type="range"
+                  value={numMatches}
+                  onChange={(e) => setNumMatches(parseInt(e.target.value))}
+                  min="1"
+                  max="16"
+                  disabled={!isHost}
+                />
+              </label>
+              <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <button onClick={createMultiplayerGame} disabled={isHost}>
+                  {isHost ? 'Game Created' : 'Create & Start New Game'}
+                </button>
+                <button onClick={joinMultiplayerGame} disabled={isHost || !gameCode}>
+                  Join Existing Game
+                </button>
+                {isHost && gameCode && (
+                  <button onClick={initializeMultiplayerGame}>Re-Start / Reset Game</button>
+                )}
+                {!isHost && gameCode && (
+                  <span style={{ fontSize: '0.85rem' }}>Enter code and click Join.</span>
+                )}
+              </div>
+            </>
+          )}
         </ReactModal>
       </header>
     </div>
